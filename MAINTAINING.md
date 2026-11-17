@@ -10,6 +10,10 @@ This file is for maintainers. It is not part of the archives that are handed out
 - `dashboard/` holds the viewer page, the exporter, and the local server.
 - `github/codemender.yml` is copied unchanged from the public documentation ("Integrate with CI/CD"). When that page changes, replace the file body; don't edit it by hand.
 
+## The repository URL
+
+`README.md` and `GUIDE.md` say `git clone <repository URL> codemender-starter`. When the repository has a home that the people you hand the kit to can read, replace `<repository URL>` in both files with the real address. Until then, tell them the address when you share it.
+
 ## Build the archives
 
 ```bash

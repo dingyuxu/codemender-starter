@@ -25,14 +25,22 @@ The kit cannot set these up for you:
 
 ## 2. Install
 
+Get the kit from the zip file or from the git repository, whichever you were given:
+
 ```bash
-unzip codemender-starter.zip
+unzip codemender-starter.zip                        # from the zip file
+git clone <repository URL> codemender-starter       # or from the git repository
+```
+
+Then sign in and install:
+
+```bash
 gcloud auth application-default login
 cd /path/to/your/repo
 bash /path/to/codemender-starter/install.sh --project YOUR_PROJECT_ID
 ```
 
-Replace `YOUR_PROJECT_ID` with the ID of your own Google Cloud project. Keep the `codemender-starter` folder where you unpacked it: the dashboard runs from there.
+Replace `YOUR_PROJECT_ID` with the ID of your own Google Cloud project. Keep the `codemender-starter` folder where you put it: the dashboard runs from there.
 
 The script runs six steps and prints each one:
 
@@ -189,7 +197,21 @@ The commit-time check also reviews files affected by your change, up to 10 by de
 
 A check that takes minutes is slow for every commit. One option is to require only the GitHub check, and leave the local hook to developers who want earlier feedback. To install without the hooks, add `--no-hook`.
 
-## 9. Uninstall
+## 9. Update or uninstall
+
+**Update.** If you cloned the repository, get the latest version and install it again. The install reuses your saved project ID and reinstalls the hooks. Restart the dashboard so that it runs the new version.
+
+```bash
+git -C /path/to/codemender-starter pull
+cd /path/to/your/repo
+bash /path/to/codemender-starter/install.sh
+bash /path/to/codemender-starter/dashboard.sh stop
+bash /path/to/codemender-starter/dashboard.sh serve
+```
+
+If you use the zip file, replace the `codemender-starter` folder with the new one, then run the last four commands.
+
+**Uninstall.**
 
 ```bash
 cd /path/to/your/repo
@@ -218,6 +240,7 @@ If the dashboard page says it cannot read its data, the server has stopped. Run 
 ## 11. What was tested
 
 - The local part was tested on Linux x86_64 against the real CodeMender service, starting from the zip file: install, health check, a scan, a fix, a commit that passes, a commit that is blocked, skipping a check, keeping an existing hook, the dashboard, and uninstall.
+- Getting the kit with `git clone` and the update steps were also tested: clone, install, a commit check, pull, install again, and restarting the dashboard.
 - macOS was not tested.
 - The GitHub Actions part was not tested. The workflow and the sign-in commands come from the public documentation.
 

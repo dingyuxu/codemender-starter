@@ -14,10 +14,20 @@ This page is the quick start. For everything else, see [GUIDE.md](GUIDE.md).
 - A Google Cloud project with CodeMender enabled. CodeMender is in Public Preview for a limited set of customers; ask your Google Cloud sales team for access.
 - Your account has the `roles/aiplatform.user` role on that project.
 
-## 1. Unpack
+## 1. Get the kit
+
+Use whichever you were given.
+
+From the zip file:
 
 ```bash
 unzip codemender-starter.zip
+```
+
+From the git repository:
+
+```bash
+git clone <repository URL> codemender-starter
 ```
 
 Keep the `codemender-starter` folder where it is. The dashboard runs from there.
@@ -90,6 +100,20 @@ bash /path/to/codemender-starter/uninstall.sh
 ```
 
 This stops the dashboard, removes the hooks, and restores the hooks you had before. It leaves the `cm` CLI and its records in place.
+
+## 7. Update the kit
+
+If you cloned the repository, get the latest version and install it again. The install reuses your saved project ID.
+
+```bash
+git -C /path/to/codemender-starter pull
+cd /path/to/your/repo
+bash /path/to/codemender-starter/install.sh
+bash /path/to/codemender-starter/dashboard.sh stop
+bash /path/to/codemender-starter/dashboard.sh serve
+```
+
+If you use the zip file, replace the `codemender-starter` folder with the new one, then run the last four commands.
 
 ## More
 
