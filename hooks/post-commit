@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# codemender-starter-hook 2
+#
+# Runs after each commit. For the local dashboard only: records which commit a
+# passed check produced. A commit made with --no-verify shows up as "Not checked".
+# This hook never fails and never changes the commit.
+set -u
+
+self_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# A post-commit hook that existed before the integration still runs first.
+if [ -x "$self_dir/post-commit.before-codemender" ]; then
+  "$self_dir/post-commit.before-codemender" "$@" || true
+fi
+
+cfg() { git config --get "codemender.$1" 2> /dev/null || true; }
+
+exporter="$(cfg kitDir)/dashboard/export.py"
+if [ "$(cfg dashboard)" = "true" ] && [ -f "$exporter" ] && command -v python3 > /dev/null 2>&1; then
+  python3 "$exporter" check-commit \
+    --hash "$(git rev-parse --short HEAD)" \
+    --subject "$(git log -1 --format=%s)" || true
+  python3 "$exporter" refresh --quiet || true
+fi
+exit 0

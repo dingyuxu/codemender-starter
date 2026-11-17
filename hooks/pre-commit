@@ -1,0 +1,125 @@
+#!/usr/bin/env bash
+# codemender-starter-hook 2
+#
+# Checks the staged changes with CodeMender before each git commit.
+# The scan command comes from the public documentation
+# ("Integrate with CI/CD" > "Scan before each commit"):
+#   cm find . --diff --staged --fail-on=CRITICAL,HIGH --yes --bypass-warning
+#
+# Settings live in this repository's git config (git config --local codemender.<name> <value>):
+#   codemender.project    Google Cloud project ID. The GOOGLE_CLOUD_PROJECT environment variable wins.
+#   codemender.failOn     Severities that block a commit. Default: CRITICAL,HIGH.
+#   codemender.failOpen   true lets the commit through when the check cannot run. Default: block.
+#   codemender.extraArgs  Extra flags for cm find, separated by spaces, for example --diff-max-neighbors=3.
+#   codemender.cmPath     Path of the cm CLI. Empty: look it up in PATH.
+#   codemender.dashboard  true records each check for the local dashboard.
+#   codemender.kitDir     Where the starter kit lives (needed for the dashboard only).
+#
+# Skip the check once:  CODEMENDER_SKIP=1 git commit ...   or   git commit --no-verify
+set -u
+
+self_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# A pre-commit hook that existed before the integration still runs first.
+if [ -x "$self_dir/pre-commit.before-codemender" ]; then
+  "$self_dir/pre-commit.before-codemender" "$@" || exit $?
+fi
+
+if [ "${CODEMENDER_SKIP:-0}" = "1" ]; then
+  echo "CodeMender: check skipped (CODEMENDER_SKIP=1)." >&2
+  exit 0
+fi
+
+# Nothing added or modified in the index (for example only deletions): nothing to check.
+if git diff --cached --quiet --diff-filter=ACMR; then
+  exit 0
+fi
+
+cfg() { git config --get "codemender.$1" 2> /dev/null || true; }
+
+cm_bin="$(cfg cmPath)"
+if [ -z "$cm_bin" ] || [ ! -x "$cm_bin" ]; then
+  cm_bin="$(command -v cm 2> /dev/null || true)"
+fi
+fail_on="$(cfg failOn)"
+fail_on="${fail_on:-CRITICAL,HIGH}"
+fail_open="$(cfg failOpen)"
+if [ -z "${GOOGLE_CLOUD_PROJECT:-}" ]; then
+  project="$(cfg project)"
+  if [ -n "$project" ]; then
+    export GOOGLE_CLOUD_PROJECT="$project"
+  fi
+fi
+
+# Used when the check gave no answer: cm missing, expired credentials, no network, service error.
+no_conclusion() {
+  echo "CodeMender: $1 This check has no result. It does not mean the code has a problem." >&2
+  if [ "$fail_open" = "true" ]; then
+    echo "  codemender.failOpen=true, so the commit goes through." >&2
+    exit 0
+  fi
+  echo "  The commit is blocked. To investigate: cm health      To commit anyway: git commit --no-verify" >&2
+  exit 1
+}
+
+if [ -z "$cm_bin" ]; then
+  no_conclusion "The cm CLI was not found."
+fi
+
+args=(find . --diff --staged "--fail-on=$fail_on" --yes --bypass-warning)
+extra="$(cfg extraArgs)"
+if [ -n "$extra" ]; then
+  read -r -a extra_args <<< "$extra"
+  if [ "${#extra_args[@]}" -gt 0 ]; then
+    args+=("${extra_args[@]}")
+  fi
+fi
+
+# Optional: record the check for the local dashboard. A problem here never changes the outcome.
+exporter="$(cfg kitDir)/dashboard/export.py"
+record=0
+if [ "$(cfg dashboard)" = "true" ] && [ -f "$exporter" ] && command -v python3 > /dev/null 2>&1; then
+  record=1
+fi
+export_data() { python3 "$exporter" "$@" || true; }
+
+echo "CodeMender: checking the staged changes..." >&2
+if [ "$record" -eq 1 ]; then
+  workdir="$(mktemp -d)"
+  trap 'rm -rf "$workdir"' EXIT
+  report="$workdir/findings.json"
+  # The JSON report lets the dashboard show what blocked the commit.
+  args+=(--format=json "--output=$report")
+  data_dir="$(git rev-parse --absolute-git-dir)/codemender/dashboard/data"
+  mkdir -p "$data_dir"
+  echo "  \$ cm ${args[*]}" >&2
+  export_data check-start
+  started=$(date +%s)
+  "$cm_bin" "${args[@]}" < /dev/null 2>&1 | tee "$data_dir/live.log"
+  rc=${PIPESTATUS[0]}
+  export_data check-end --rc "$rc" --seconds $(( $(date +%s) - started )) --findings "$report"
+  export_data refresh --quiet
+else
+  echo "  \$ cm ${args[*]}" >&2
+  "$cm_bin" "${args[@]}" < /dev/null
+  rc=$?
+fi
+
+case "$rc" in
+  0)
+    exit 0
+    ;;
+  1)
+    echo "CodeMender blocked this commit: the change has a finding at severity $fail_on." >&2
+    if [ "$record" -eq 1 ]; then
+      export_data print-blocking >&2
+    fi
+    echo "  See the findings:        cm report --status=OPEN" >&2
+    echo "  Let CodeMender fix one:  cm fix <ID> --no-reset   (--no-reset keeps your uncommitted changes)" >&2
+    echo "  Commit anyway:           git commit --no-verify" >&2
+    exit 1
+    ;;
+  *)
+    no_conclusion "cm ended with exit code $rc."
+    ;;
+esac

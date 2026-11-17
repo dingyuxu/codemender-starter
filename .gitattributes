@@ -1,0 +1,5 @@
+# Not part of the archives built by package.sh.
+.gitattributes  export-ignore
+.gitignore      export-ignore
+package.sh      export-ignore
+MAINTAINING.md  export-ignore

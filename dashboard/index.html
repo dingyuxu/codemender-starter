@@ -1,0 +1,767 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CodeMender local dashboard</title>
+<meta name="description" content="Local dashboard for the cm CLI: findings, patches, and the result of each commit check.">
+<style>
+  :root {
+    --bg: #f3f5f8;
+    --surface: #ffffff;
+    --ink: #1b1f24;
+    --ink-2: #4a5360;
+    --ink-3: #7c8794;
+    --line: #e4e8ee;
+    --hover: #f7f9fc;
+    --accent: #1a73e8;
+    --accent-soft: #e8f0fe;
+    --ok: #137333;
+    --ok-soft: #e6f4ea;
+    --crit: #a50e0e;
+    --crit-soft: #fce8e6;
+    --high: #a8491a;
+    --high-soft: #fdeee3;
+    --med: #7a5a00;
+    --med-soft: #fef6d8;
+    --low: #1967d2;
+    --low-soft: #e8f0fe;
+    --mute: #5f6b7a;
+    --mute-soft: #edf0f4;
+    --shadow: 0 1px 2px rgba(16, 24, 40, .06), 0 6px 16px rgba(16, 24, 40, .05);
+    --radius: 12px;
+    --mono: "Roboto Mono", ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+    --sans: "Google Sans Text", "Google Sans", Roboto, system-ui, -apple-system, "PingFang SC",
+      "Noto Sans CJK SC", "Source Han Sans SC", "Microsoft YaHei", sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 14px/1.55 var(--sans);
+    letter-spacing: .01em;
+  }
+  code, pre, .mono { font-family: var(--mono); font-size: 12.5px; letter-spacing: 0; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .wrap { max-width: 1520px; margin: 0 auto; padding: 20px 24px 32px; }
+
+  /* Header */
+  .top { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px 24px; margin-bottom: 16px; }
+  h1 { margin: 0; font-size: 22px; font-weight: 600; letter-spacing: 0; }
+  .repo-line { margin: 4px 0 0; color: var(--ink-2); }
+  .repo-line .mono { color: var(--ink); }
+  .facts { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; }
+  .fact { background: var(--surface); border-radius: 999px; padding: 5px 12px; box-shadow: var(--shadow); white-space: nowrap; }
+  .fact dt { display: inline; color: var(--ink-3); margin-right: 6px; }
+  .fact dd { display: inline; margin: 0; font-weight: 500; }
+  .fact.warn dd { color: var(--high); }
+  .fact.good dd { color: var(--ok); }
+
+  /* Cards */
+  .card { background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow); }
+  .card + .card { margin-top: 16px; }
+  .card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 18px 0; }
+  h2 { margin: 0; font-size: 15px; font-weight: 600; letter-spacing: 0; }
+  .card-body { padding: 12px 18px 16px; }
+  .hint { color: var(--ink-3); }
+  .empty { padding: 22px 18px 26px; color: var(--ink-2); text-align: center; }
+  .empty code { background: var(--mute-soft); border-radius: 6px; padding: 2px 7px; color: var(--ink); }
+
+  .banner { background: #fff7e6; border-radius: var(--radius); box-shadow: var(--shadow); padding: 14px 18px; margin-bottom: 16px; }
+  .banner strong { display: block; font-size: 15px; margin-bottom: 2px; }
+  .banner p { margin: 2px 0; color: var(--ink-2); }
+  .banner details { margin-top: 6px; }
+  .banner summary { cursor: pointer; color: var(--accent); }
+  .banner pre { margin: 8px 0 0; padding: 10px 12px; background: rgba(0, 0, 0, .04); border-radius: 8px; white-space: pre-wrap; word-break: break-word; max-height: 220px; overflow: auto; }
+  .banner.offline { background: var(--crit-soft); }
+
+  .grid { display: grid; grid-template-columns: minmax(0, 1.75fr) minmax(340px, 1fr); gap: 16px; align-items: start; }
+  @media (max-width: 1120px) { .grid { grid-template-columns: minmax(0, 1fr); } }
+
+  /* Summary tiles: one card, five cells divided by hairlines */
+  .tiles { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); }
+  .tile { padding: 14px 18px 16px; position: relative; }
+  .tile + .tile::before { content: ""; position: absolute; left: 0; top: 16px; bottom: 16px; width: 1px; background: var(--line); }
+  .tile .num { font-size: 30px; line-height: 1.1; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .tile .lab { margin-top: 4px; color: var(--ink-2); display: flex; align-items: center; gap: 6px; }
+  .tile.zero .num { color: var(--ink-3); }
+  @media (max-width: 640px) { .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } .tile + .tile::before { display: none; } }
+
+  .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; flex: none; }
+  .sev-CRITICAL { --c: var(--crit); --s: var(--crit-soft); }
+  .sev-HIGH { --c: var(--high); --s: var(--high-soft); }
+  .sev-MEDIUM { --c: var(--med); --s: var(--med-soft); }
+  .sev-LOW { --c: var(--low); --s: var(--low-soft); }
+  .dot[class*="sev-"] { background: var(--c); }
+  .pill { display: inline-block; border-radius: 999px; padding: 1px 9px; font-size: 12px; font-weight: 600; white-space: nowrap; background: var(--mute-soft); color: var(--mute); }
+  .pill[class*="sev-"] { background: var(--s); color: var(--c); }
+  .pill.ok { background: var(--ok-soft); color: var(--ok); }
+  .pill.bad { background: var(--crit-soft); color: var(--crit); }
+  .pill.warn { background: var(--high-soft); color: var(--high); }
+  .pill.info { background: var(--accent-soft); color: var(--accent); }
+  .tag { font-size: 11.5px; color: var(--ink-3); background: var(--mute-soft); border-radius: 5px; padding: 0 6px; margin-left: 6px; white-space: nowrap; }
+
+  /* Filter tabs */
+  .tabs { display: flex; gap: 4px; background: var(--mute-soft); border-radius: 9px; padding: 3px; }
+  .tabs button { font: inherit; border: 0; background: transparent; color: var(--ink-2); padding: 4px 12px; border-radius: 7px; cursor: pointer; transition: background .15s, color .15s; }
+  .tabs button:hover { color: var(--ink); }
+  .tabs button[aria-pressed="true"] { background: var(--surface); color: var(--ink); box-shadow: 0 1px 2px rgba(16, 24, 40, .12); font-weight: 600; }
+  .tabs button:focus-visible, tr:focus-visible, .linklike:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  /* Findings table */
+  .table-scroll { overflow-x: auto; }
+  /* With many findings the list scrolls on its own, so the detail panel stays on screen. */
+  .table-scroll.tall { max-height: 392px; overflow-y: auto; }
+  .table-scroll.tall thead th { position: sticky; top: 0; background: var(--surface); z-index: 1; box-shadow: 0 1px 0 var(--line); }
+  table { width: 100%; border-collapse: collapse; }
+  th { text-align: left; font-weight: 500; color: var(--ink-3); font-size: 12.5px; padding: 8px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  td { padding: 9px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  tr:last-child td { border-bottom: 0; }
+  th:first-child, td:first-child { padding-left: 18px; }
+  th:last-child, td:last-child { padding-right: 18px; }
+  tbody tr { cursor: pointer; transition: background .12s; }
+  tbody tr:hover { background: var(--hover); }
+  tbody tr[aria-selected="true"] { background: var(--accent-soft); }
+  td.file { color: var(--ink-2); overflow-wrap: anywhere; min-width: 150px; }
+  td.title .sub { color: var(--ink-3); font-size: 12.5px; }
+  tr.gone td { opacity: .55; }
+
+  /* Detail */
+  .detail-head { padding: 16px 18px 0; }
+  .detail-head h3 { margin: 6px 0 0; font-size: 16px; font-weight: 600; letter-spacing: 0; }
+  .kv { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 8px 18px; padding: 12px 18px 0; margin: 0; }
+  .kv dt { color: var(--ink-3); font-size: 12.5px; }
+  .kv dd { margin: 0; word-break: break-word; }
+  .block { padding: 12px 18px 0; }
+  .block:last-child { padding-bottom: 18px; }
+  .block h4 { margin: 0 0 6px; font-size: 13px; font-weight: 600; color: var(--ink-2); letter-spacing: 0; display: flex; align-items: center; gap: 8px; }
+  .prose { word-break: break-word; }
+  .prose p { margin: 0 0 8px; white-space: pre-wrap; }
+  .prose p:last-child { margin-bottom: 0; }
+  .prose .md-h { font-weight: 600; margin: 12px 0 4px; }
+  .prose .md-h:first-child { margin-top: 0; }
+  .prose ul, .prose ol { margin: 0 0 8px; padding-left: 22px; }
+  .prose code { background: var(--mute-soft); border-radius: 4px; padding: 1px 5px; }
+  .prose pre.code { margin: 0 0 8px; }
+  pre.code { margin: 0; background: #f6f8fa; border-radius: 8px; padding: 10px 12px; overflow: auto; max-height: 420px; white-space: pre; }
+  pre.diff span { display: block; padding: 0 4px; border-radius: 3px; min-height: 1.55em; }
+  pre.diff .add { background: #e6f4ea; color: #0b5c26; }
+  pre.diff .del { background: #fce8e6; color: #8c1d18; }
+  pre.diff .hunk { color: #5b4bc4; }
+  pre.diff .meta { color: var(--ink-3); }
+  details.more { margin-top: 8px; }
+  details.more summary { cursor: pointer; color: var(--accent); }
+  details.more .prose { margin-top: 6px; color: var(--ink-2); }
+
+  /* Commit checks */
+  .checks { list-style: none; margin: 0; padding: 4px 0 6px; }
+  .check { padding: 11px 18px; border-bottom: 1px solid var(--line); }
+  .check:last-child { border-bottom: 0; }
+  .check-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .check-top time { color: var(--ink-3); font-size: 12.5px; white-space: nowrap; }
+  .check .what { margin-top: 4px; overflow-wrap: anywhere; }
+  .check .files { color: var(--ink-3); font-size: 12.5px; overflow-wrap: anywhere; }
+  .check ul { list-style: none; margin: 6px 0 0; padding: 0; }
+  .check li { display: flex; gap: 8px; align-items: baseline; padding: 2px 0; }
+  .linklike { font: inherit; border: 0; background: none; padding: 0; color: var(--accent); cursor: pointer; text-align: left; }
+  .linklike:hover { text-decoration: underline; }
+  .spinner { width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--accent-soft); border-top-color: var(--accent); display: inline-block; animation: spin .8s linear infinite; vertical-align: -1px; margin-right: 6px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .spinner { animation: none; } }
+
+  /* Live output */
+  pre.log { margin: 0; background: #14181d; color: #d7dde5; border-radius: 8px; padding: 10px 12px; height: 230px; overflow: auto; white-space: pre-wrap; word-break: break-word; font-size: 12px; line-height: 1.5; }
+  .live-state { color: var(--ink-2); font-size: 13px; }
+
+  /* Activity */
+  .runs td, .runs th { padding: 6px 8px; font-size: 13px; }
+  .runs th:first-child, .runs td:first-child { padding-left: 18px; }
+  .runs tbody tr { cursor: default; }
+  .usage { padding: 10px 18px 14px; color: var(--ink-2); border-top: 1px solid var(--line); font-size: 13px; }
+  .usage b { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+
+  footer { margin-top: 20px; color: var(--ink-3); font-size: 12.5px; display: flex; flex-wrap: wrap; gap: 6px 18px; justify-content: space-between; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div>
+      <h1 id="page-title">CodeMender local dashboard</h1>
+      <p class="repo-line" id="repo-line">Loading…</p>
+    </div>
+    <dl class="facts" id="facts"></dl>
+  </header>
+
+  <div id="banner-slot" aria-live="polite"></div>
+
+  <main class="grid">
+    <div>
+      <section class="card" id="summary-card" aria-labelledby="summary-title">
+        <h2 id="summary-title" style="position:absolute;left:-9999px">Open findings by severity</h2>
+        <div class="tiles" id="tiles"></div>
+      </section>
+
+      <section class="card" id="findings-card" aria-labelledby="findings-title">
+        <div class="card-head">
+          <h2 id="findings-title">Findings</h2>
+          <div class="tabs" id="filter-tabs" role="group" aria-label="Filter by status"></div>
+        </div>
+        <div id="findings-body"></div>
+      </section>
+
+      <section class="card" id="detail-card" aria-labelledby="detail-title" hidden>
+        <h2 id="detail-title" style="position:absolute;left:-9999px">Finding details</h2>
+        <div id="detail-body"></div>
+      </section>
+    </div>
+
+    <aside>
+      <section class="card" id="checks-card" aria-labelledby="checks-title">
+        <div class="card-head">
+          <h2 id="checks-title">Commit checks</h2>
+          <span class="hint" id="checks-hint"></span>
+        </div>
+        <div id="checks-body"></div>
+      </section>
+
+      <section class="card" id="live-card" aria-labelledby="live-title">
+        <div class="card-head">
+          <h2 id="live-title">Commit check output</h2>
+          <span class="live-state" id="live-state" aria-live="polite"></span>
+        </div>
+        <div class="card-body"><pre class="log" id="live-log" tabindex="0"></pre></div>
+      </section>
+
+      <section class="card" id="runs-card" aria-labelledby="runs-title">
+        <div class="card-head"><h2 id="runs-title">Recent sessions</h2></div>
+        <div id="runs-body"></div>
+      </section>
+    </aside>
+  </main>
+
+  <footer>
+    <span>This is a local viewer from the starter kit, not a CodeMender product UI. All data on this page comes from the <code>cm</code> CLI.</span>
+    <span id="foot-right"></span>
+  </footer>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  const FILES = ['meta', 'health', 'findings', 'checks', 'activity', 'stats', 'live'];
+  const SEVS = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'];
+  const STATUS = { OPEN: 'Open', VERIFIED: 'Verified exploitable', EXPLOIT_FAILED: 'Exploit failed', FIXED: 'Fixed', DISMISSED: 'Dismissed', REOPENED: 'Reopened' };
+  const PATCH = { applied: 'Patch applied', pending: 'Patch pending', partial: 'Patch partly applied', superseded: 'Patch superseded' };
+  // cm recorded the patch as applied, but the finding was detected again: the patch is not in the current code.
+  function patchLabel(f) {
+    const p = f.patch || {};
+    if (p.status === 'applied' && f.bucket === 'OPEN') return 'Earlier patch';
+    return PATCH[p.status] || p.status || '';
+  }
+  const RESULT = { PASS: ['Passed', 'ok'], BLOCKED: ['Blocked', 'bad'], ERROR: ['No result', 'warn'], SKIPPED: ['Not checked', ''], RUNNING: ['Checking', 'info'] };
+  const KIND = { scan: 'Scan', fix: 'Fix', verify: 'Verify', check: 'Commit check' };
+  const SESSION = { COMPLETED: 'Completed', CANCELLED: 'Cancelled', FAILED: 'Failed', RUNNING: 'Running', WAITING_FOR_TOOL: 'Interrupted' };
+  const LAYER = { credentials: 'credentials', config: 'configuration', reachability: 'network', authorization: 'authorization' };
+
+  const S = {};
+  const ui = { filter: 'open', selected: null, offline: false };
+  let lastKey = null;
+  let lastLog = null;
+
+  // Builds DOM nodes. Data only ever goes in as text, never as HTML.
+  function el(tag, props) {
+    const node = document.createElement(tag);
+    if (props) {
+      for (const k of Object.keys(props)) {
+        const v = props[k];
+        if (v === null || v === undefined || v === false) continue;
+        if (k === 'class') node.className = v;
+        else if (k === 'text') node.textContent = v;
+        else if (k.slice(0, 2) === 'on') node.addEventListener(k.slice(2), v);
+        else node.setAttribute(k, v === true ? '' : v);
+      }
+    }
+    for (let i = 2; i < arguments.length; i++) {
+      const kid = arguments[i];
+      if (kid === null || kid === undefined || kid === false) continue;
+      if (Array.isArray(kid)) kid.forEach(function (x) { if (x) node.append(x.nodeType ? x : String(x)); });
+      else node.append(kid.nodeType ? kid : String(kid));
+    }
+    return node;
+  }
+  const $ = function (id) { return document.getElementById(id); };
+
+  function fmtTime(iso) {
+    if (!iso) return '';
+    const d = new Date(iso);
+    if (isNaN(d)) return '';
+    return d.toLocaleTimeString([], { hour12: false });
+  }
+  function fmtDur(sec) {
+    if (sec === null || sec === undefined) return '';
+    sec = Math.max(0, Math.round(sec));
+    if (sec < 60) return sec + ' s';
+    return Math.floor(sec / 60) + ' min ' + (sec % 60) + ' s';
+  }
+  function fmtNum(n) {
+    try { return new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 }).format(n || 0); }
+    catch (e) { return String(n || 0); }
+  }
+  function sevRank(s) { const i = SEVS.indexOf(s); return i < 0 ? 9 : i; }
+  function sevPill(s) { return el('span', { class: 'pill sev-' + s, text: s || '—' }); }
+  function loc(f) { return (f.rel_path || '') + (f.start_line ? ':' + f.start_line : ''); }
+
+  async function getJSON(name) {
+    const r = await fetch('data/' + name + '.json?t=' + Date.now(), { cache: 'no-store' });
+    if (r.status === 404) return null;
+    if (!r.ok) throw new Error('http ' + r.status);
+    return r.json();
+  }
+  async function getLog() {
+    const r = await fetch('data/live.log?t=' + Date.now(), { cache: 'no-store' });
+    if (!r.ok) return '';
+    return r.text();
+  }
+
+  function renderHeader() {
+    const m = S.meta || {};
+    const line = $('repo-line');
+    line.replaceChildren();
+    if (!S.meta) {
+      line.textContent = 'No data yet. Run dashboard.sh refresh in the repository.';
+    } else if (!m.repo_present) {
+      line.textContent = 'Repository not found.';
+    } else {
+      line.append(
+        el('span', { class: 'mono', text: m.repo_name || 'repo' }), ' · ',
+        el('span', { class: 'mono', text: (m.branch || '?') + ' @ ' + ((m.head && m.head.hash) || '?') }), ' · ',
+        (m.head && m.head.subject) || '',
+        m.changed_files ? ' · ' + m.changed_files + (m.changed_files === 1 ? ' uncommitted change' : ' uncommitted changes') : ''
+      );
+    }
+    const h = S.health;
+    const healthy = h && h.status === 'healthy';
+    const facts = [
+      ['cm version', m.cm_version || 'unknown', ''],
+            ['Project', m.project || 'not set', m.project ? '' : 'warn'],
+      ['Model', m.model || 'cm default', ''],
+      ['Blocks on', m.fail_on || '—', ''],
+      ['Commit hook', m.hook_installed ? 'installed' : 'not installed', m.hook_installed ? 'good' : 'warn'],
+      ['Health check', !h ? 'not run' : healthy ? 'healthy' : 'failed', !h ? '' : healthy ? 'good' : 'warn']
+    ].filter(Boolean);
+    $('facts').replaceChildren.apply($('facts'), facts.map(function (f) {
+      return el('div', { class: 'fact ' + f[2] }, el('dt', { text: f[0] }), el('dd', { text: f[1] }));
+    }));
+    $('foot-right').replaceChildren(
+      m.html_report ? el('a', { href: 'report.html', target: '_blank', rel: 'noopener', id: 'report-link', text: 'Open the HTML report from cm' }) : '',
+      m.generated_at ? el('span', { text: (m.html_report ? ' · ' : '') + 'Updated ' + fmtTime(m.generated_at) }) : ''
+    );
+  }
+
+  function renderBanner() {
+    const slot = $('banner-slot');
+    if (ui.offline) {
+      slot.replaceChildren(el('div', { class: 'banner offline', id: 'offline-banner' },
+        el('strong', { text: 'Cannot read the dashboard data' }),
+        el('p', { text: 'The dashboard server may have stopped. Run dashboard.sh serve in the repository; this page then recovers by itself.' })));
+      return;
+    }
+    const h = S.health;
+    if (!h) {
+      slot.replaceChildren(el('div', { class: 'banner', id: 'health-banner' },
+        el('strong', { text: 'The health check has not run yet' }),
+        el('p', { text: 'Run dashboard.sh refresh to check credentials, network and permissions. The health check uses no model quota.' })));
+      return;
+    }
+    if (h.status === 'healthy') { slot.replaceChildren(); return; }
+    const failed = (h.layers || []).filter(function (l) { return l.status === 'failed'; })[0];
+    const layerName = failed ? (LAYER[failed.layer] || failed.layer) : '';
+    const err = String(h.error || (failed && failed.error) || '');
+    const first = err.split('\n').filter(function (x) { return x.trim(); })[0] || '';
+    let tip = '';
+    if (h.exit_code === 10) tip = h.project_configured ? 'Sign in again: gcloud auth application-default login' : 'No project is set. Run install.sh again with --project <ID>.';
+    else if (h.exit_code === 40) tip = 'This account cannot use CodeMender in project ' + (h.project_id || '') + ' yet, or CodeMender is not enabled for the project. Then run dashboard.sh refresh.';
+    else if (h.exit_code === 30) tip = 'This machine cannot reach the CodeMender service. Check the network or proxy.';
+    slot.replaceChildren(el('div', { class: 'banner', id: 'health-banner' },
+      el('strong', { text: 'The CodeMender health check failed' + (layerName ? ' at the ' + layerName + ' layer' : '') }),
+      el('p', { text: first }),
+      tip ? el('p', { text: tip }) : null,
+      el('p', { class: 'hint', text: 'Until the health check passes, scans, fixes and commit checks cannot return results. Checked at ' + fmtTime(h.checked_at) }),
+      err && err !== first ? el('details', null, el('summary', { text: 'Full output of cm health' }), el('pre', { text: err })) : null));
+  }
+
+  function renderTiles() {
+    const fs = S.findings || [];
+    const open = fs.filter(function (f) { return f.bucket === 'OPEN' && present(f); });
+    const fixed = fs.filter(function (f) { return f.bucket === 'FIXED' && present(f); }).length;
+    const tiles = SEVS.map(function (s) {
+      const n = open.filter(function (f) { return f.severity === s; }).length;
+      return el('div', { class: 'tile' + (n ? '' : ' zero'), id: 'tile-' + s },
+        el('div', { class: 'num', text: String(n) }),
+        el('div', { class: 'lab' }, el('span', { class: 'dot sev-' + s }), s + ' open'));
+    });
+    tiles.push(el('div', { class: 'tile' + (fixed ? '' : ' zero'), id: 'tile-FIXED' },
+      el('div', { class: 'num', text: String(fixed), style: fixed ? 'color:var(--ok)' : null }),
+      el('div', { class: 'lab', text: 'Fixed' })));
+    $('tiles').replaceChildren.apply($('tiles'), tiles);
+  }
+
+  // The finding's file is still in the working tree. Findings whose file was deleted (for example
+  // after undoing a blocked change) are not counted as open or fixed; they only show, greyed out, under All.
+  function present(f) { return f.file_exists !== false; }
+
+  function visibleFindings() {
+    const fs = (S.findings || []).slice();
+    const out = fs.filter(function (f) {
+      if (ui.filter === 'open') return f.bucket === 'OPEN' && present(f);
+      if (ui.filter === 'fixed') return f.bucket === 'FIXED' && present(f);
+      return true;
+    });
+    out.sort(function (a, b) {
+      return sevRank(a.severity) - sevRank(b.severity) || String(a.rel_path).localeCompare(String(b.rel_path));
+    });
+    return out;
+  }
+
+  function statusPill(f) {
+    const cls = f.bucket === 'FIXED' ? 'ok' : f.status === 'VERIFIED' || f.status === 'REOPENED' ? 'bad' : '';
+    return el('span', { class: 'pill ' + cls, text: STATUS[f.status] || f.status });
+  }
+
+  function select(id, scroll) {
+    ui.selected = id;
+    ui.reveal = true;
+    try { history.replaceState(null, '', '#f=' + String(id).slice(0, 8)); } catch (e) { /* ignore */ }
+    renderFindings();
+    renderDetail();
+    if (scroll) $('detail-card').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+
+  // A link like index.html#f=1a2b3c4d opens with that finding selected.
+  function applyHash() {
+    if (ui.selected) return;
+    const m = /[#&]f=([0-9a-f-]+)/i.exec(location.hash);
+    if (!m) return;
+    const f = (S.findings || []).filter(function (x) { return String(x.finding_id).indexOf(m[1]) === 0; })[0];
+    if (f) { ui.selected = f.finding_id; ui.filter = 'all'; ui.reveal = true; }
+  }
+
+  function renderFindings() {
+    const fs = S.findings || [];
+    const count = { open: 0, fixed: 0, all: fs.length };
+    fs.forEach(function (f) {
+      if (!present(f)) return;
+      if (f.bucket === 'OPEN') count.open++; else if (f.bucket === 'FIXED') count.fixed++;
+    });
+    const tabs = [['open', 'Open'], ['fixed', 'Fixed'], ['all', 'All']].map(function (t) {
+      return el('button', {
+        type: 'button', id: 'filter-' + t[0], 'aria-pressed': String(ui.filter === t[0]),
+        onclick: function () { ui.filter = t[0]; renderFindings(); }
+      }, t[1] + ' ' + count[t[0]]);
+    });
+    $('filter-tabs').replaceChildren.apply($('filter-tabs'), tabs);
+
+    const body = $('findings-body');
+    if (!fs.length) {
+      body.replaceChildren(el('div', { class: 'empty', id: 'findings-empty' },
+        'No findings yet. Run ', el('code', { text: 'cm find <path>' }), ' to scan your code.'));
+      return;
+    }
+    const rows = visibleFindings();
+    if (!rows.length) {
+      body.replaceChildren(el('div', { class: 'empty' }, ui.filter === 'fixed' ? 'No fixed findings yet.' : 'No findings match this filter.'));
+      return;
+    }
+    const tbody = el('tbody');
+    rows.forEach(function (f) {
+      const pick = function () { select(f.finding_id, true); };
+      tbody.append(el('tr', {
+        id: 'row-' + f.short_id, tabindex: '0', class: f.file_exists === false ? 'gone' : null,
+        'aria-selected': String(ui.selected === f.finding_id),
+        onclick: pick, onkeydown: function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(); } }
+      },
+        el('td', null, sevPill(f.severity)),
+        el('td', { class: 'mono', text: f.short_id }),
+        el('td', { class: 'file mono', text: loc(f) }),
+        el('td', { class: 'title' },
+          el('div', null, f.display_title || f.title || '',
+            f.legacy ? el('span', { class: 'tag', text: 'Existing issue' }) : null,
+            f.file_exists === false ? el('span', { class: 'tag', text: 'File no longer in the working tree' }) : null),
+          el('div', { class: 'sub', text: f.vuln_type || '' })),
+        el('td', null, statusPill(f),
+          f.patch ? el('div', { class: 'hint', style: 'font-size:12px;margin-top:2px', text: patchLabel(f) }) : null)
+      ));
+    });
+    // Keep the list's scroll position across re-renders.
+    const old = body.querySelector('.table-scroll');
+    const scrollTop = old ? old.scrollTop : 0;
+    const wrap = el('div', { class: 'table-scroll' + (rows.length > 6 ? ' tall' : '') }, el('table', { id: 'findings-table' },
+      el('thead', null, el('tr', null,
+        el('th', { text: 'Severity' }), el('th', { text: 'ID' }), el('th', { text: 'Location' }), el('th', { text: 'Title' }), el('th', { text: 'Status' }))),
+      tbody));
+    body.replaceChildren(wrap);
+    wrap.scrollTop = scrollTop;
+    // When a finding has just been selected, scroll it into the visible part of the list.
+    if (ui.reveal) {
+      ui.reveal = false;
+      const sel = wrap.querySelector('tr[aria-selected="true"]');
+      if (sel && wrap.scrollHeight > wrap.clientHeight) {
+        const head = wrap.querySelector('thead');
+        const headH = head ? head.offsetHeight : 0;
+        const top = sel.offsetTop;
+        const bottom = top + sel.offsetHeight;
+        if (top - headH < wrap.scrollTop) wrap.scrollTop = Math.max(0, top - headH);
+        else if (bottom > wrap.scrollTop + wrap.clientHeight) wrap.scrollTop = bottom - wrap.clientHeight;
+      }
+    }
+  }
+
+  // Minimal Markdown rendering for the text cm writes (analysis, fix notes):
+  // headings, lists, fenced code, inline code and bold. Every piece of data is
+  // inserted as a text node, so markup inside the data is never interpreted.
+  function inlineMd(text) {
+    const out = [];
+    String(text).split(/(`[^`\n]+`)/).forEach(function (part) {
+      if (!part) return;
+      if (part.length > 2 && part[0] === '`' && part[part.length - 1] === '`') {
+        out.push(el('code', { text: part.slice(1, -1) }));
+        return;
+      }
+      part.split(/(\*\*[^*\n]+\*\*)/).forEach(function (seg) {
+        if (!seg) return;
+        if (seg.length > 4 && seg.slice(0, 2) === '**' && seg.slice(-2) === '**') out.push(el('strong', { text: seg.slice(2, -2) }));
+        else out.push(document.createTextNode(seg));
+      });
+    });
+    return out;
+  }
+  function mdNode(text, id) {
+    const root = el('div', { class: 'prose', id: id || null });
+    const lines = String(text || '').replace(/\r/g, '').split('\n');
+    const isFence = function (s) { return /^\s*```/.test(s); };
+    const isHead = function (s) { return /^\s{0,3}#{1,6}\s+/.test(s); };
+    const isItem = function (s) { return /^\s*([-*]|\d+\.)\s+/.test(s); };
+    let i = 0;
+    while (i < lines.length) {
+      const line = lines[i];
+      if (isFence(line)) {
+        const code = [];
+        i++;
+        while (i < lines.length && !isFence(lines[i])) { code.push(lines[i]); i++; }
+        i++;
+        root.append(el('pre', { class: 'code', text: code.join('\n') }));
+      } else if (isHead(line)) {
+        root.append(el('div', { class: 'md-h' }, inlineMd(line.replace(/^\s{0,3}#{1,6}\s+/, ''))));
+        i++;
+      } else if (isItem(line)) {
+        const list = el(/^\s*\d+\.\s+/.test(line) ? 'ol' : 'ul');
+        while (i < lines.length && isItem(lines[i])) {
+          list.append(el('li', null, inlineMd(lines[i].replace(/^\s*([-*]|\d+\.)\s+/, ''))));
+          i++;
+        }
+        root.append(list);
+      } else if (!line.trim()) {
+        i++;
+      } else {
+        const para = [];
+        while (i < lines.length && lines[i].trim() && !isFence(lines[i]) && !isHead(lines[i]) && !isItem(lines[i])) { para.push(lines[i]); i++; }
+        root.append(el('p', null, inlineMd(para.join('\n'))));
+      }
+    }
+    return root;
+  }
+
+  function diffNode(diff) {
+    const pre = el('pre', { class: 'code diff', id: 'patch-diff' });
+    String(diff).replace(/\n$/, '').split('\n').forEach(function (line) {
+      let cls = '';
+      if (/^(\+\+\+|---|diff |index )/.test(line)) cls = 'meta';
+      else if (line[0] === '+') cls = 'add';
+      else if (line[0] === '-') cls = 'del';
+      else if (line.slice(0, 2) === '@@') cls = 'hunk';
+      pre.append(el('span', { class: cls, text: line || ' ' }));
+    });
+    return pre;
+  }
+
+  function renderDetail() {
+    const card = $('detail-card');
+    const f = (S.findings || []).filter(function (x) { return x.finding_id === ui.selected; })[0];
+    if (!f) { card.hidden = true; return; }
+    card.hidden = false;
+    const kv = el('dl', { class: 'kv' });
+    const add = function (k, v) { if (v !== undefined && v !== null && v !== '') kv.append(el('div', null, el('dt', { text: k }), el('dd', { text: String(v) }))); };
+    add('Type', f.vuln_type);
+    add('Location', (f.rel_path || '') + (f.start_line ? ':' + f.start_line + (f.end_line && f.end_line !== f.start_line ? '–' + f.end_line : '') : ''));
+    add('Status', STATUS[f.status] || f.status);
+    if (f.confidence) add('Confidence (from cm)', f.confidence + '%' + (f.confidence_level ? ' · ' + f.confidence_level : ''));
+    add('Full ID', f.finding_id);
+    if (f.dismiss_reason) add('Dismiss reason', f.dismiss_reason);
+
+    const parts = [
+      el('div', { class: 'detail-head' }, sevPill(f.severity),
+        f.legacy ? el('span', { class: 'tag', text: 'Existing issue' }) : null,
+        el('h3', { id: 'detail-heading', text: f.display_title || f.title || '' })),
+      kv
+    ];
+    if (f.analysis) parts.push(el('div', { class: 'block' }, el('h4', { text: 'Analysis' }), mdNode(f.analysis, 'detail-analysis')));
+    if (f.snippet) parts.push(el('div', { class: 'block' }, el('h4', { text: 'Vulnerable code' }), el('pre', { class: 'code', id: 'detail-snippet', text: f.snippet })));
+    const p = f.patch;
+    if (p && p.diff) {
+      // cm 0.21.0 sometimes records "Fix completed. No file edits generated." on a patch that has a diff.
+      // That sentence contradicts the diff, so it is not shown here. cm's own HTML report still shows it.
+      const reasoning = /no file edits generated/i.test(p.reasoning || '') ? '' : p.reasoning;
+      parts.push(el('div', { class: 'block' },
+        el('h4', null, 'Patch', el('span', { class: 'pill ' + (p.status === 'applied' && f.bucket !== 'OPEN' ? 'ok' : ''), text: patchLabel(f) })),
+        diffNode(p.diff),
+        p.validation_result ? el('details', { class: 'more' }, el('summary', { text: 'Validation result (recorded by cm)' }), mdNode(p.validation_result)) : null,
+        reasoning ? el('details', { class: 'more' }, el('summary', { text: 'Fix notes (recorded by cm)' }), mdNode(reasoning)) : null));
+    } else if (f.bucket === 'OPEN') {
+      // When the file has uncommitted changes, cm fix needs --no-reset; otherwise it resets the working tree first.
+      parts.push(el('div', { class: 'block' }, el('h4', { text: 'Patch' }),
+        el('div', { class: 'hint' }, 'No patch yet. Run ', el('code', { text: 'cm fix ' + f.short_id + (f.uncommitted ? ' --no-reset' : '') }))));
+    }
+    $('detail-body').replaceChildren.apply($('detail-body'), parts);
+  }
+
+  function renderChecks() {
+    const cs = (S.checks || []).slice().reverse().slice(0, 12);
+    const m = S.meta || {};
+    $('checks-hint').textContent = m.hook_installed ? 'Runs on every git commit' : '';
+    const body = $('checks-body');
+    if (!cs.length) {
+      body.replaceChildren(el('div', { class: 'empty', id: 'checks-empty' },
+        'No commit checks yet. One runs each time you ', el('code', { text: 'git commit' }), ' in this repository.'));
+      return;
+    }
+    const list = el('ul', { class: 'checks', id: 'checks-list' });
+    cs.forEach(function (c) {
+      const running = c.state === 'RUNNING';
+      const r = RESULT[running ? 'RUNNING' : c.result] || [c.result || '', ''];
+      const item = el('li', { class: 'check', id: 'check-' + c.id },
+        el('div', { class: 'check-top' },
+          el('span', null, running ? el('span', { class: 'spinner' }) : null, el('span', { class: 'pill ' + r[1], text: r[0] }),
+            c.seconds !== null && c.seconds !== undefined && !running && c.result !== 'SKIPPED' ? el('span', { class: 'hint', style: 'margin-left:8px', text: fmtDur(c.seconds) }) : null),
+          el('time', { datetime: c.started_at, text: fmtTime(c.started_at) })));
+      if (c.commit) {
+        item.append(el('div', { class: 'what' }, el('span', { class: 'mono', text: c.commit.hash }), ' ', c.commit.subject || ''));
+      } else if (c.result === 'BLOCKED') {
+        item.append(el('div', { class: 'what', text: 'Commit blocked; no commit was created' }));
+      } else if (c.result === 'ERROR') {
+        item.append(el('div', { class: 'what', text: 'No result; the commit was blocked' }));
+      }
+      if (c.files && c.files.length) {
+        const shown = c.files.slice(0, 3).join(', ');
+        item.append(el('div', { class: 'files', text: 'Changed: ' + shown + (c.files.length > 3 ? ' and ' + (c.files.length - 3) + ' more' : '') }));
+      }
+      if (c.note) item.append(el('div', { class: 'files', text: c.note }));
+      const listed = (c.blocking || []);
+      if (listed.length) {
+        const ul = el('ul');
+        listed.forEach(function (f) {
+          const known = (S.findings || []).some(function (x) { return x.finding_id === f.finding_id; });
+          const label = (f.display_title || '') + ' (' + (f.rel_path || '') + (f.start_line ? ':' + f.start_line : '') + ')';
+          ul.append(el('li', null, sevPill(f.severity),
+            known ? el('button', { type: 'button', class: 'linklike', text: label, onclick: function () { ui.filter = 'all'; select(f.finding_id, true); } })
+                  : el('span', { text: label })));
+        });
+        item.append(ul);
+      }
+      const extra = [];
+      if (c.other && c.other.length) extra.push(c.other.length + ' more below the blocking severity');
+      if (c.legacy && c.legacy.length) extra.push(c.legacy.length + ' in code the change did not touch (not blocking)');
+      if (c.incomplete) extra.push('the scan did not finish');
+      if (extra.length) item.append(el('div', { class: 'files', text: extra.join('; ') }));
+      list.append(item);
+    });
+    body.replaceChildren(list);
+  }
+
+  function renderRuns() {
+    const runs = (S.activity || []).slice().reverse().slice(0, 6);
+    const body = $('runs-body');
+    const nodes = [];
+    if (!runs.length) {
+      nodes.push(el('div', { class: 'empty', id: 'runs-empty', text: 'No sessions yet.' }));
+    } else {
+      const tbody = el('tbody');
+      runs.forEach(function (r) {
+        // One row per cm session of this repository, as recorded in cm's local state.
+        const done = r.status === 'COMPLETED';
+        tbody.append(el('tr', null,
+          el('td', { text: fmtTime(r.at) }),
+          el('td', { text: KIND[r.kind] || r.kind }),
+          el('td', { class: 'mono', text: r.target || '' }),
+          el('td', { text: fmtDur(r.seconds) }),
+          el('td', null, el('span', { class: 'pill ' + (done ? 'ok' : 'warn'), text: SESSION[r.status] || r.status || '' }))));
+      });
+      nodes.push(el('div', { class: 'table-scroll' }, el('table', { class: 'runs', id: 'runs-table' },
+        el('thead', null, el('tr', null, el('th', { text: 'Time' }), el('th', { text: 'Type' }), el('th', { text: 'Target' }), el('th', { text: 'Duration' }), el('th', { text: 'Status' }))),
+        tbody)));
+    }
+    const st = S.stats || {};
+    if (st.total_tokens) {
+      nodes.push(el('div', { class: 'usage', id: 'usage' },
+        'Token usage (cm stats, ', String(st.since || 'recent'), '): total ', el('b', { text: fmtNum(st.total_tokens) }),
+        ' · input ', el('b', { text: fmtNum(st.input_tokens) }),
+        ' · output ', el('b', { text: fmtNum(st.output_tokens) }),
+        st.cache_hit_percent ? ' · cache hits ' + Math.round(st.cache_hit_percent) + '%' : ''));
+    }
+    body.replaceChildren.apply(body, nodes);
+  }
+
+  function renderLiveState() {
+    const live = S.live || {};
+    const node = $('live-state');
+    if (!live.state) { node.textContent = lastLog ? 'Idle (output of the last check below)' : 'Idle'; return; }
+    const sec = live.since ? (Date.now() - new Date(live.since).getTime()) / 1000 : 0;
+    node.replaceChildren(el('span', { class: 'spinner' }), (KIND[live.state] || live.state) + ' in progress · ' + fmtDur(sec));
+    node.title = live.detail || '';
+  }
+
+  function renderLog() {
+    const pre = $('live-log');
+    const lines = String(lastLog || '').split('\n');
+    const atBottom = pre.scrollHeight - pre.scrollTop - pre.clientHeight < 40;
+    pre.textContent = lines.slice(-200).join('\n') || 'The output of the commit check appears here.';
+    if (atBottom) pre.scrollTop = pre.scrollHeight;
+  }
+
+  function renderAll() {
+    renderHeader();
+    renderBanner();
+    renderTiles();
+    renderFindings();
+    renderDetail();
+    renderChecks();
+    renderRuns();
+  }
+
+  async function tick() {
+    try {
+      const vals = await Promise.all(FILES.map(getJSON));
+      FILES.forEach(function (n, i) { S[n] = vals[i]; });
+      const key = JSON.stringify(vals);
+      const wasOffline = ui.offline;
+      ui.offline = false;
+      if (key !== lastKey || wasOffline) { lastKey = key; applyHash(); renderAll(); }
+      const log = await getLog();
+      if (log !== lastLog) { lastLog = log; renderLog(); }
+    } catch (e) {
+      if (!ui.offline) { ui.offline = true; renderBanner(); }
+    }
+    renderLiveState();
+  }
+
+  renderLog();
+  tick();
+  setInterval(tick, 2000);
+})();
+</script>
+</body>
+</html>
