@@ -154,6 +154,10 @@ fi
 
 # ---------------------------------------------------------------- 3. initialize
 step "3/6 Initialize"
+cm_config="${CM_HOME:-$HOME/.codemender}/config.yaml"
+if [ -f "$cm_config" ]; then
+  say "cm is already set up on this machine. If it asks below whether to overwrite its config, the answer given is no: your config is kept."
+fi
 say "\$ cm init"
 "$cm_path" init < /dev/null || die "cm init failed."
 
@@ -166,7 +170,6 @@ for pattern in .cm_project .exploit/; do
 done
 
 # Make cm fix treat the repository root as its boundary (the official GitHub workflow does the same).
-cm_config="${CM_HOME:-$HOME/.codemender}/config.yaml"
 if [ -f "$cm_config" ]; then
   if grep -qF "\"$repo_root\"" "$cm_config"; then
     :

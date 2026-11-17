@@ -24,10 +24,10 @@ From the zip file:
 unzip codemender-starter.zip
 ```
 
-From the git repository:
+From the git repository, if you have access to it:
 
 ```bash
-git clone <repository URL> codemender-starter
+git clone https://github.com/dingyuxu/codemender-starter.git
 ```
 
 Keep the `codemender-starter` folder where it is. The dashboard runs from there.

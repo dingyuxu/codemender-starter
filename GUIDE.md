@@ -28,8 +28,11 @@ The kit cannot set these up for you:
 Get the kit from the zip file or from the git repository, whichever you were given:
 
 ```bash
-unzip codemender-starter.zip                        # from the zip file
-git clone <repository URL> codemender-starter       # or from the git repository
+# From the zip file:
+unzip codemender-starter.zip
+
+# Or from the git repository, if you have access to it:
+git clone https://github.com/dingyuxu/codemender-starter.git
 ```
 
 Then sign in and install:
