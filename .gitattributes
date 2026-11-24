@@ -3,3 +3,4 @@
 .gitignore      export-ignore
 package.sh      export-ignore
 MAINTAINING.md  export-ignore
+.github         export-ignore
