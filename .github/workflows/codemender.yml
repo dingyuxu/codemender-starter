@@ -53,14 +53,6 @@ jobs:
           unzip -q -o "$RUNNER_TEMP/cm.zip" -d "$RUNNER_TEMP/cm"
           echo "$RUNNER_TEMP/cm" >> "$GITHUB_PATH"
 
-      # Diagnostic for the test pull request only: show the four health layers
-      # (credentials, configuration, network, authorization) before the scan.
-      # It never fails the job.
-      - name: Check access to CodeMender (diagnostic)
-        run: |
-          cm --version
-          cm health --timeout 60s || echo "::warning::cm health exited with code $?"
-
       - name: Scan the pull request
         id: scan
         env:
