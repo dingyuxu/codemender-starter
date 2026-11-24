@@ -240,12 +240,15 @@ Exit codes of `cm health` and `cm find`:
 
 If the dashboard page says it cannot read its data, the server has stopped. Run `dashboard.sh serve` again.
 
+If the first scan in a project fails with `context deadline exceeded`, run it again after a few minutes. In our test, the first pull request check in a new project timed out when it started its session, and the same check passed without changes 14 minutes later.
+
 ## 11. What was tested
 
 - The local part was tested on Linux x86_64 against the real CodeMender service, starting from the zip file: install, health check, a scan, a fix, a commit that passes, a commit that is blocked, skipping a check, keeping an existing hook, the dashboard, and uninstall.
 - Getting the kit with `git clone` and the update steps were also tested: clone, install, a commit check, pull, install again, and restarting the dashboard.
 - macOS was not tested.
-- The GitHub Actions part was not tested. The workflow and the sign-in commands come from the public documentation.
+- The GitHub pull request check was tested on a private GitHub.com repository: the sign-in setup (the commands that `github/wif-commands.sh` prints), a pull request that passes, a pull request that is blocked, and the automatic pull request with a fix. The code-scanning upload step was removed for that test, because the repository had no GitHub code scanning.
+- Not tested on GitHub: the code-scanning upload, merging the fix pull request and the scan that follows, and pull requests from forks.
 
 Try the whole flow in a test repository before you rely on it.
 
